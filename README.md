@@ -1,5 +1,6 @@
 ## NLCE Calculations
 Numerical Linked-Cluster Expansion algorithm implemented for the Fermi-Hubbard model.
+.
 
 ## In this branch
 Need to modify a file in scipy to make sure the code doesn't break.
