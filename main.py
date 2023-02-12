@@ -369,7 +369,7 @@ if __name__ == "__main__":
     u_per_t = 4
     mu_per_t = 1
     temperature_per_t = 1.0
-    t_list = np.array([0.8])
+    t_list = np.array([0.714285714285714])
     print(t_list)
     generate_clusters = True
 
