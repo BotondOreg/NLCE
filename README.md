@@ -7,7 +7,7 @@ Do this at your own risk but if you are using a virtual environment, it should b
 Will use the local version at some point.
 
 The necessary change:
-Add the following lines to envs/<environment-name>/Lib/site-packages/scipy/sparse/linalg/_expm_multiply.py:
+Add the following lines to ```envs/<environment-name>/Lib/site-packages/scipy/sparse/linalg/_expm_multiply.py```:
 ```
 # EDIT
 X = np.empty((nsamples,), dtype=object) # dtype is a sparse matrix
