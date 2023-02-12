@@ -10,13 +10,13 @@ import datetime
 
 """
 TODO:
- - Include the fermionic sign into tunneling
  - Calculate results for every temperature, not just one
  - Separate elements to separate packages
  - Save the clusters and embeddings so that they can be reused
  - Add docstrings to functions
  - Generate requirements and wrap up the whole package
  - Diagonalize the Hamiltonian block diagonally. Spin up and spin down numbers are conserved.
+ - Put things into arrays while taking care of lengths and indices.
 """
 
 
@@ -80,6 +80,24 @@ def create_clusters(grid_size, max_order):
     return adjacency_matrices, lattice_embedding, subcluster_embedding_in_cluster
 
 
+def atom_number(state_number):
+    # The number of atoms in a state represented by state_number
+
+    if type(state_number) == int:
+        binary = np.binary_repr(state_number)
+        return str.count(binary, '1')
+    elif type(state_number) == list or type(state_number) == tuple:
+        state_number = np.array(state_number)
+    elif type(state_number) != np.ndarray:
+        print("Unknown input type!")
+
+    flat_input = state_number.flatten()
+    number = np.char.count(list(map(np.binary_repr, flat_input)), '1')
+    number = number.reshape(state_number.shape)
+
+    return number
+
+
 def generate_hopping(adjacency, spin='both'):
     # Create a sparse array
 
@@ -98,47 +116,58 @@ def generate_hopping(adjacency, spin='both'):
 
         # Spin-up hopping
         if spin=='up' or spin=='both':
+            fermionic_sign = np.ones((2 ** (2 * n_sites - 2),))  # Make the hamiltonian floating point
             if from_site < to_site:
                 # insert placeholder for from site spin up (2*4**from_site)
                 (div, mod) = np.divmod(states_without_ij, 2 * 4 ** from_site)
                 empty_states = mod + 4 ** (from_site + 1) * div
+                fermionic_sign *= (-1) ** atom_number(div)
                 # insert placeholder for to site spin up (2*4**to_site)
                 (div, mod) = np.divmod(empty_states, 2 * 4 ** to_site)
                 empty_states = mod + 4 ** (to_site + 1) * div
-            else: # Assuming to_site != from_site
+                fermionic_sign *= (-1) ** atom_number(div)
+            else:  # Assuming to_site != from_site
                 # insert placeholder for to site spin up (2*4**to_site)
                 (div, mod) = np.divmod(states_without_ij, 2 * 4 ** to_site)
                 empty_states = mod + 4 ** (to_site + 1) * div
+                fermionic_sign *= (-1) ** atom_number(div)
                 # insert placeholder for from site spin up (2*4**from_site)
                 (div, mod) = np.divmod(empty_states, 2 * 4 ** from_site)
                 empty_states = mod + 4 ** (from_site + 1) * div
+                fermionic_sign *= (-1) ** atom_number(div)
             from_states = empty_states + 2 * 4 ** from_site
             to_states = empty_states + 2 * 4 ** to_site
 
-            hopping += sparse.coo_matrix((np.ones((2**(2*n_sites-2),)), (from_states, to_states)),
+            hopping += sparse.coo_matrix((fermionic_sign, (from_states, to_states)),
                                          shape=(matrix_size, matrix_size))
 
         # Spin-down hopping
         if spin == 'dn' or spin == 'both':
+            fermionic_sign = np.ones((2 ** (2 * n_sites - 2),))  # Make the hamiltonian floating point
             if from_site < to_site:
                 # insert placeholder for from site spin down (4**from_site)
                 (div, mod) = np.divmod(states_without_ij, 4 ** from_site)
                 empty_states = mod + 2 * 4 ** from_site * div
+                fermionic_sign *= (-1) ** atom_number(div)
                 # insert placeholder for to site spin up (4**to_site)
                 (div, mod) = np.divmod(empty_states, 4 ** to_site)
                 empty_states = mod + 2 * 4 ** to_site * div
+                fermionic_sign *= (-1) ** atom_number(div)
             else:  # Assuming to_site != from_site
                 # insert placeholder for to site spin up (4**to_site)
                 (div, mod) = np.divmod(states_without_ij, 4 ** to_site)
                 empty_states = mod + 2 * 4 ** to_site * div
+                fermionic_sign *= (-1) ** atom_number(div)
                 # insert placeholder for from site spin up (4**from_site)
                 (div, mod) = np.divmod(empty_states, 4 ** from_site)
                 empty_states = mod + 2 * 4 ** from_site * div
+                fermionic_sign *= (-1) ** atom_number(div)
             from_states = empty_states + 4 ** (from_site)
             to_states = empty_states + 4 ** (to_site)
 
-            hopping += sparse.coo_matrix((np.ones((2 ** (2 * n_sites - 2),)), (from_states, to_states)),
+            hopping += sparse.coo_matrix((fermionic_sign, (from_states, to_states)),
                                          shape=(matrix_size, matrix_size))
+
     return hopping
 
 
@@ -151,7 +180,8 @@ def generate_dh_correlator(adjacency):
     correlator = scipy.sparse.csc_matrix((matrix_size, matrix_size))
 
     for from_site in range(n_sites):
-        (_,to_list) = np.nonzero(adjacency[from_site, :])  # Apparently this is still a 2D array
+        # Apparently, the dimensionality of adjacency[from_site, :] depends on the numpy version
+        (_,to_list) = np.nonzero(np.atleast_2d(adjacency[from_site, :]))
 
         for to_site in to_list:
             states_without_ij = np.arange(2 ** (2 * (n_sites - 2)), dtype=int)
@@ -188,7 +218,8 @@ def generate_mm_correlator(adjacency):
     correlator = scipy.sparse.csc_matrix((matrix_size, matrix_size))
 
     for from_site in range(n_sites):
-        (_,to_list) = np.nonzero(adjacency[from_site, :])  # Apparently this is still a 2D array
+        # Apparently, the dimensionality of adjacency[from_site, :] depends on the numpy version
+        (_, to_list) = np.nonzero(np.atleast_2d(adjacency[from_site, :]))
 
         for to_site in to_list:
             states_without_ij = np.arange(2**(2*(n_sites-2)), dtype=int)
@@ -268,7 +299,6 @@ def generate_density(adjacency, spin='both'):
 
 
 def generate_hamiltonian(adjacency, u_per_t, mu_per_t):
-    # TODO: include fermionic sign
     # Hamiltonian for a graph with N sites is a 2^(2*N)-by-2^(2*N) matrix
     # The index of a state is the sum of the following terms
     # If there is a spin down on site i, that contributes 2^i
@@ -312,6 +342,7 @@ def generate_cluster_expansion(observables, hamiltonians, temperature_per_t):
         for cluster_index in range(len(hamiltonians[order-1])):
             _a = observables[order-1][cluster_index]
             _mbh = -beta*hamiltonians[order-1][cluster_index]
+
             value = np.sum(linalg.expm_multiply(_mbh, _a).diagonal()) / np.sum(linalg.expm(_mbh).diagonal())
 
             for sub_order in range(1, order):
@@ -333,11 +364,11 @@ if __name__ == "__main__":
     ## Global properties
     l_grid = 7
     n_sites = l_grid**2
-    max_order = 5
+    max_order = 4
 
-    u_per_t = 6
-    mu_per_t = u_per_t/2 - 3
-    temperature_per_t = 0.69
+    u_per_t = 4
+    mu_per_t = 1
+    temperature_per_t = 1.0
     t_list = np.array([0.8])
     print(t_list)
     generate_clusters = True
