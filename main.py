@@ -18,6 +18,9 @@ TODO:
  - Diagonalize the Hamiltonian block diagonally. Spin up and spin down numbers are conserved.
  - Put things into arrays while taking care of lengths and indices
  - Diagonalize the Hamiltonian in a sparse way and calculate the expectation values all at once
+    * Probably brute force diagonalize when the hamiltonian is small (say smaller than 1024*1024)
+    * Find energy eigenvalues when larger and find more eigenvalues up until the new eigenvalues are so large
+        that their Boltzmann factor doesn't matter. Say beyond 1e-16 or so. Could be 1e-10 too.
 """
 
 
