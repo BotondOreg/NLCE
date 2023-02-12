@@ -16,7 +16,8 @@ TODO:
  - Add docstrings to functions
  - Generate requirements and wrap up the whole package
  - Diagonalize the Hamiltonian block diagonally. Spin up and spin down numbers are conserved.
- - Put things into arrays while taking care of lengths and indices.
+ - Put things into arrays while taking care of lengths and indices
+ - Diagonalize the Hamiltonian in a sparse way and calculate the expectation values all at once
 """
 
 
@@ -106,7 +107,7 @@ def generate_hopping(adjacency, spin='both'):
     n_sites = adjacency.shape[0]
     matrix_size = 4**n_sites
 
-    hopping = scipy.sparse.csc_matrix((matrix_size, matrix_size))
+    hopping = scipy.sparse.csr_matrix((matrix_size, matrix_size))
 
     for index in range(len(from_list)):
         from_site = from_list[index]
@@ -177,7 +178,7 @@ def generate_dh_correlator(adjacency):
     n_sites = adjacency.shape[0]
     matrix_size = 4 ** n_sites
 
-    correlator = scipy.sparse.csc_matrix((matrix_size, matrix_size))
+    correlator = scipy.sparse.csr_matrix((matrix_size, matrix_size))
 
     for from_site in range(n_sites):
         # Apparently, the dimensionality of adjacency[from_site, :] depends on the numpy version
@@ -215,7 +216,7 @@ def generate_mm_correlator(adjacency):
     n_sites = adjacency.shape[0]
     matrix_size = 4**n_sites
 
-    correlator = scipy.sparse.csc_matrix((matrix_size, matrix_size))
+    correlator = scipy.sparse.csr_matrix((matrix_size, matrix_size))
 
     for from_site in range(n_sites):
         # Apparently, the dimensionality of adjacency[from_site, :] depends on the numpy version
@@ -265,7 +266,7 @@ def generate_doublon(adjacency):
     n_sites = adjacency.shape[0]
     matrix_size = 4 ** n_sites
 
-    doublon = scipy.sparse.csc_matrix((matrix_size, matrix_size))
+    doublon = scipy.sparse.csr_matrix((matrix_size, matrix_size))
 
     states = np.arange(matrix_size)
 
@@ -284,7 +285,7 @@ def generate_density(adjacency, spin='both'):
     n_sites = adjacency.shape[0]
     matrix_size = 4 ** n_sites
 
-    density = sparse.csc_matrix((matrix_size, matrix_size))
+    density = sparse.csr_matrix((matrix_size, matrix_size))
     states = np.arange(matrix_size)
 
     for site in range(n_sites):
@@ -325,15 +326,24 @@ def generate_density_list(adjacency_matrix_list):
 def generate_doublon_list(adjacency_matrix_list):
     return [[generate_doublon(graph) for graph in graph_list] for graph_list in adjacency_matrix_list]
 
+
 def generate_dh_list(adjacency_matrix_list):
     return [[generate_dh_correlator(graph) for graph in graph_list] for graph_list in adjacency_matrix_list]
+
 
 def generate_mm_list(adjacency_matrix_list):
     return [[generate_mm_correlator(graph) for graph in graph_list] for graph_list in adjacency_matrix_list]
 
 
-def generate_cluster_expansion(observables, hamiltonians, temperature_per_t):
-    beta = 1.0/temperature_per_t
+def generate_cluster_expansion(observables, hamiltonians):  #, temperature_per_t):
+    # beta = 1.0/temperature_per_t
+
+    start_beta = 0.2
+    stop_beta = 10
+    num_beta = 99
+
+    beta_list = np.linspace(start_beta, stop_beta, num_beta)
+    temperature_list = 1 / beta_list
 
     expectation_value = []
 
@@ -341,9 +351,17 @@ def generate_cluster_expansion(observables, hamiltonians, temperature_per_t):
         _exp_val = []
         for cluster_index in range(len(hamiltonians[order-1])):
             _a = observables[order-1][cluster_index]
-            _mbh = -beta*hamiltonians[order-1][cluster_index]
+            _mh = -hamiltonians[order-1][cluster_index]
 
-            value = np.sum(linalg.expm_multiply(_mbh, _a).diagonal()) / np.sum(linalg.expm(_mbh).diagonal())
+            # numerator list is supposed to be a 1D ndarray consisting of csr matrix objects (dtype is object)
+            numerator_list = sparse.linalg.expm_multiply(_mh, _a,
+                                start=start_beta, stop=stop_beta, num=num_beta, endpoint=True)
+            numerator_list = np.array([np.sum(matrix.diagonal()) for matrix in numerator_list])
+
+            denominator_list = sparse.linalg.expm_multiply(_mh, sparse.identity(_mh.get_shape()[0], format='csr'),
+                                                         start=start_beta, stop=stop_beta, num=num_beta, endpoint=True)
+            denominator_list = np.array([np.sum(matrix.diagonal()) for matrix in denominator_list])
+            value = numerator_list/denominator_list
 
             for sub_order in range(1, order):
                 for subcluster_index in range(len(subcluster_embedding_in_cluster[order-1][cluster_index][sub_order-1])):
@@ -353,7 +371,7 @@ def generate_cluster_expansion(observables, hamiltonians, temperature_per_t):
             _exp_val.append(value)
         expectation_value.append(_exp_val)
 
-    return expectation_value
+    return expectation_value, temperature_list
 
 
 
@@ -368,10 +386,7 @@ if __name__ == "__main__":
 
     u_per_t = 4
     mu_per_t = 1
-    temperature_per_t = 1.0
-    t_list = np.array([0.8])
-    print(t_list)
-    generate_clusters = True
+    # generate_clusters = True cannot yet load the clusters
 
     ## Run the code
     # Generate clusters
@@ -385,48 +400,46 @@ if __name__ == "__main__":
     hamiltonians = generate_hamiltonian_list(adjacency_matrices, u_per_t, mu_per_t)
 
     print(datetime.datetime.now()) # 3
-    n_list = []
-    d_list = []
-    dh_list = []
-    mm_list = []
-    for _t in t_list:
-        cluster_expansion = generate_cluster_expansion(doublons, hamiltonians, _t)
-        cluster_expansion_with_multiplicity = [[cluster_expansion[order-1][i]*lattice_embedding[order-1][i]
-                                                for i in range(len(lattice_embedding[order-1]))]
-                                                   for order in range(1, max_order+1)]
-        # print([np.sum(cluster_expansion_with_multiplicity[order-1]) for order in range(1, max_order+1)])
-        d_list.append(np.sum([np.sum(cluster_expansion_with_multiplicity[order-1]) for order in range(1, max_order+1)]))
 
-        cluster_expansion = generate_cluster_expansion(densities, hamiltonians, _t)
-        cluster_expansion_with_multiplicity = [[cluster_expansion[order - 1][i] * lattice_embedding[order - 1][i]
-                                                for i in range(len(lattice_embedding[order - 1]))]
-                                               for order in range(1, max_order + 1)]
-        # # print([np.sum(cluster_expansion_with_multiplicity[order-1]) for order in range(1, max_order+1)])
-        n_list.append(
-            np.sum([np.sum(cluster_expansion_with_multiplicity[order - 1]) for order in range(1, max_order + 1)]))
+    ## Calculations
+    cluster_expansion, temperature_list = generate_cluster_expansion(doublons, hamiltonians)
+    cluster_expansion_with_multiplicity = [[cluster_expansion[order-1][i]*lattice_embedding[order-1][i]
+                                            for i in range(len(lattice_embedding[order-1]))]
+                                               for order in range(1, max_order+1)]
+    # print([np.sum(cluster_expansion_with_multiplicity[order-1]) for order in range(1, max_order+1)])
+    d_list = np.sum(np.array([np.sum(np.array(cluster_expansion_with_multiplicity[order - 1]), axis=0)
+                        for order in range(1, max_order + 1)]), axis=0)
 
-        cluster_expansion = generate_cluster_expansion(dh_corrs, hamiltonians, _t)
-        cluster_expansion_with_multiplicity = [[cluster_expansion[order - 1][i] * lattice_embedding[order - 1][i]
-                                                for i in range(len(lattice_embedding[order - 1]))]
-                                               for order in range(1, max_order + 1)]
-        # print([np.sum(cluster_expansion_with_multiplicity[order-1]) for order in range(1, max_order+1)])
-        dh_list.append(
-            np.sum([np.sum(cluster_expansion_with_multiplicity[order - 1]) for order in range(1, max_order + 1)]))
+    cluster_expansion, temperature_list = generate_cluster_expansion(densities, hamiltonians)
+    cluster_expansion_with_multiplicity = [[cluster_expansion[order - 1][i] * lattice_embedding[order - 1][i]
+                                            for i in range(len(lattice_embedding[order - 1]))]
+                                           for order in range(1, max_order + 1)]
+    # # print([np.sum(cluster_expansion_with_multiplicity[order-1]) for order in range(1, max_order+1)])
+    n_list = np.sum(np.array([np.sum(np.array(cluster_expansion_with_multiplicity[order - 1]), axis=0)
+                        for order in range(1, max_order + 1)]), axis=0)
 
-        cluster_expansion = generate_cluster_expansion(mm_corrs, hamiltonians, _t)
-        cluster_expansion_with_multiplicity = [[cluster_expansion[order - 1][i] * lattice_embedding[order - 1][i]
-                                                for i in range(len(lattice_embedding[order - 1]))]
-                                               for order in range(1, max_order + 1)]
-        # print([np.sum(cluster_expansion_with_multiplicity[order-1]) for order in range(1, max_order+1)])
-        mm_list.append(
-            np.sum([np.sum(cluster_expansion_with_multiplicity[order - 1]) for order in range(1, max_order + 1)]))
+    cluster_expansion, temperature_list = generate_cluster_expansion(dh_corrs, hamiltonians)
+    cluster_expansion_with_multiplicity = [[cluster_expansion[order - 1][i] * lattice_embedding[order - 1][i]
+                                            for i in range(len(lattice_embedding[order - 1]))]
+                                           for order in range(1, max_order + 1)]
+    # print([np.sum(cluster_expansion_with_multiplicity[order-1]) for order in range(1, max_order+1)])
+    dh_list = np.sum(np.array([np.sum(np.array(cluster_expansion_with_multiplicity[order - 1]), axis=0)
+                        for order in range(1, max_order + 1)]), axis=0)
 
-    d_list = np.array(d_list)/n_sites
-    n_list = np.array([n_list]) / n_sites
-    dh_list = np.array(dh_list) / n_sites
-    mm_list = np.array(mm_list) / n_sites
+    cluster_expansion, temperature_list = generate_cluster_expansion(mm_corrs, hamiltonians)
+    cluster_expansion_with_multiplicity = [[cluster_expansion[order - 1][i] * lattice_embedding[order - 1][i]
+                                            for i in range(len(lattice_embedding[order - 1]))]
+                                           for order in range(1, max_order + 1)]
+    # print([np.sum(cluster_expansion_with_multiplicity[order-1]) for order in range(1, max_order+1)])
+    mm_list = np.sum(np.array([np.sum(np.array(cluster_expansion_with_multiplicity[order - 1]), axis=0)
+                        for order in range(1, max_order + 1)]), axis=0)
 
-    np.savetxt('result.csv', (t_list, n_list, d_list, dh_list, mm_list), delimiter=',')
+    d_list /= n_sites
+    n_list /= n_sites
+    dh_list /= n_sites
+    mm_list /= n_sites
+
+    np.savetxt('result.csv', (temperature_list, n_list, d_list, dh_list, mm_list), delimiter=',')
     print(datetime.datetime.now()) # 4
     # plt.plot(mu_list, n_list, 'o-')
     # plt.xlabel('mu / t')
