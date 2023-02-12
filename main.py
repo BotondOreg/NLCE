@@ -8,6 +8,17 @@ from scipy.sparse import linalg
 import itertools
 import datetime
 
+"""
+TODO:
+ - Include the fermionic sign into tunneling
+ - Calculate results for every temperature, not just one
+ - Separate elements to separate packages
+ - Save the clusters and embeddings so that they can be reused
+ - Add docstrings to functions
+ - Generate requirements and wrap up the whole package
+ - Diagonalize the Hamiltonian block diagonally. Spin up and spin down numbers are conserved.
+"""
+
 
 def get_connected_subgraphs_multiplicities(graph, order):
     nodes = graph.nodes
